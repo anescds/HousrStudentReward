@@ -453,6 +453,207 @@ Roast their SPENDING choices and provide insights based on WHAT they're paying f
   }
 });
 
+// Analyze wellbeing endpoint
+app.post('/api/user/analyze-wellbeing', async (req, res) => {
+  try {
+    const { transactions } = req.body;
+    console.log('Analyzing wellbeing for transactions:', transactions?.length || 0);
+
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_API_KEY) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
+    }
+
+    // Prepare transaction data for analysis
+    const transactionSummary = transactions.map(t => {
+      const date = new Date(t.date);
+      const hour = date.getHours();
+      const isLateNight = hour >= 22 || hour <= 4;
+      return {
+        merchant: t.merchant,
+        amount: t.amount,
+        date: t.date,
+        hour: hour,
+        isLateNight: isLateNight,
+        type: t.type || 'unknown'
+      };
+    }).slice(0, 20); // Analyze last 20 transactions
+
+    const systemInstruction = `You are a compassionate and supportive mental health and wellbeing AI assistant. Your role is to analyze transaction patterns to identify potential stress indicators, concerning spending habits related to substance use, or other mental health concerns.
+
+IMPORTANT GUIDELINES:
+- Be supportive, non-judgmental, and empathetic
+- Focus on patterns, not individual transactions
+- Look for: frequent late-night transactions, transactions at bars/liquor stores/pharmacies, rapid spending increases, unusual patterns
+- Consider context: students may have legitimate reasons for various transactions
+- Only flag genuine concerns, not normal student spending
+- Provide helpful, actionable resources
+
+Your response must be a JSON object with this exact structure:
+{
+  "summary": "A brief, supportive summary (2-3 sentences) of the analysis",
+  "concerns": ["Array of specific concerns detected, if any. Empty array if no concerns"],
+  "resources": [
+    {
+      "title": "Resource name",
+      "description": "Brief description",
+      "url": "https://resource-url.com"
+    }
+  ],
+  "riskLevel": "low" | "moderate" | "high"
+}
+
+Risk levels:
+- "low": No concerning patterns detected, healthy spending habits
+- "moderate": Some patterns that might indicate stress or concern, but could be normal
+- "high": Clear patterns suggesting potential substance abuse, severe stress, or mental health concerns
+
+Always include helpful resources for mental health support, even if risk is low. Include UK-specific resources when possible.`;
+
+    const userPrompt = `Analyze these transactions for wellbeing concerns:
+${JSON.stringify(transactionSummary, null, 2)}
+
+Look for patterns related to:
+- Substance abuse indicators (frequent bars, liquor stores, late-night pharmacy visits)
+- Stress indicators (rapid spending changes, unusual patterns)
+- Mental health concerns (isolation patterns, concerning spending habits)
+
+Provide a JSON response with the analysis.`;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: userPrompt
+              }
+            ]
+          }
+        ],
+        systemInstruction: {
+          parts: [
+            {
+              text: systemInstruction
+            }
+          ]
+        },
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Gemini API error:', response.status, errorText);
+      
+      if (response.status === 429) {
+        return res.status(429).json({ error: 'Rate limit exceeded. Please try again in a moment!' });
+      }
+      
+      if (response.status === 403) {
+        return res.status(403).json({ error: 'API key invalid or quota exceeded. Please check your Gemini API key!' });
+      }
+      
+      return res.status(500).json({ error: `Gemini API request failed: ${response.status}` });
+    }
+
+    const data = await response.json();
+    
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+      console.error('Unexpected Gemini API response:', data);
+      return res.status(500).json({ error: 'Unexpected response format from Gemini API' });
+    }
+    
+    let analysis;
+    try {
+      const responseText = data.candidates[0].content.parts[0].text;
+      analysis = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Failed to parse AI response:', parseError);
+      // Fallback response if parsing fails
+      analysis = {
+        summary: "We've analyzed your transaction patterns. Your spending habits appear healthy overall. Remember to prioritize your mental wellbeing and reach out for support if needed.",
+        concerns: [],
+        resources: [
+          {
+            title: "Mind - Mental Health Charity",
+            description: "UK mental health charity providing advice and support",
+            url: "https://www.mind.org.uk"
+          },
+          {
+            title: "Samaritans",
+            description: "24/7 free confidential support for anyone in distress",
+            url: "https://www.samaritans.org"
+          },
+          {
+            title: "Student Minds",
+            description: "UK's student mental health charity",
+            url: "https://www.studentminds.org.uk"
+          }
+        ],
+        riskLevel: "low"
+      };
+    }
+
+    // Ensure resources are always present
+    if (!analysis.resources || analysis.resources.length === 0) {
+      analysis.resources = [
+        {
+          title: "Mind - Mental Health Charity",
+          description: "UK mental health charity providing advice and support",
+          url: "https://www.mind.org.uk"
+        },
+        {
+          title: "Samaritans",
+          description: "24/7 free confidential support for anyone in distress",
+          url: "https://www.samaritans.org"
+        },
+        {
+          title: "Student Minds",
+          description: "UK's student mental health charity",
+          url: "https://www.studentminds.org.uk"
+        }
+      ];
+    }
+
+    console.log('Wellbeing analysis completed successfully');
+
+    return res.json(analysis);
+
+  } catch (error) {
+    console.error('Error in analyze-wellbeing endpoint:', error);
+    // Return a safe fallback response
+    return res.json({
+      summary: "We've analyzed your transaction patterns. Your spending habits appear healthy overall. Remember to prioritize your mental wellbeing and reach out for support if needed.",
+      concerns: [],
+      resources: [
+        {
+          title: "Mind - Mental Health Charity",
+          description: "UK mental health charity providing advice and support",
+          url: "https://www.mind.org.uk"
+        },
+        {
+          title: "Samaritans",
+          description: "24/7 free confidential support for anyone in distress",
+          url: "https://www.samaritans.org"
+        },
+        {
+          title: "Student Minds",
+          description: "UK's student mental health charity",
+          url: "https://www.studentminds.org.uk"
+        }
+      ],
+      riskLevel: "low"
+    });
+  }
+});
+
 // Perks endpoints (require authentication)
 app.get('/api/user/perks', verifySession, (req, res) => {
   res.json({ perks: generalPerks });

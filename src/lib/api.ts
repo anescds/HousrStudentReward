@@ -14,6 +14,28 @@ export interface GenerateRoastResponse {
   roast: string;
 }
 
+export interface WellbeingResource {
+  title: string;
+  description: string;
+  url: string;
+}
+
+export interface GenerateWellbeingAnalysisRequest {
+  transactions: Array<{
+    merchant: string;
+    amount: number;
+    date: string;
+    type?: string;
+  }>;
+}
+
+export interface GenerateWellbeingAnalysisResponse {
+  summary: string;
+  concerns: string[];
+  resources: WellbeingResource[];
+  riskLevel: 'low' | 'moderate' | 'high';
+}
+
 export interface ApiError {
   error: string;
 }
@@ -56,6 +78,32 @@ export async function generateRoast(data: GenerateRoastRequest): Promise<Generat
     headers: {
       'Content-Type': 'application/json',
     },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorData: ApiError = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function generateWellbeingAnalysis(data: GenerateWellbeingAnalysisRequest): Promise<GenerateWellbeingAnalysisResponse> {
+  const cookie = getAuthCookie();
+  
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (cookie) {
+    headers['Authorization'] = `Bearer ${cookie}`;
+    headers['x-auth-cookie'] = cookie;
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/user/analyze-wellbeing`, {
+    method: 'POST',
+    headers,
     body: JSON.stringify(data),
   });
 

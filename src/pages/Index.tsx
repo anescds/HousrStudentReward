@@ -6,6 +6,7 @@ import { PerksSection } from "@/components/PerksSection";
 import { BottomNav } from "@/components/BottomNav";
 import { PaymentConfetti } from "@/components/PaymentConfetti";
 import { AIRoastCard } from "@/components/AIRoastCard";
+import { WellbeingAICard } from "@/components/WellbeingAICard";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSimulation } from "@/contexts/SimulationContext";
@@ -154,6 +155,9 @@ const Index = () => {
         
         {/* AI Roast Section */}
         <AIRoastCard balance={balance} monthlyEarned={monthlyEarned} />
+        
+        {/* Wellbeing AI Section */}
+        <WellbeingAICard />
         
         {/* Recent Payments */}
         <RecentPayments />
